@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build output
+dist/
+**/dist/
+dist-ssr/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+*secret*
+*mnemonic*
+
+# Logs and local files
+*.log
+*.local
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
