@@ -36,6 +36,30 @@ export function RouteComparisonTab({
 }: RouteComparisonTabProps) {
   const [filter, setFilter] = useState<FilterOption>('all')
   const [expandedRouteId, setExpandedRouteId] = useState<number | null>(selectedRouteId)
+  const [recordingRouteId, setRecordingRouteId] = useState<number | null>(null)
+  const [recordResult, setRecordResult] = useState<{ routeId: number; transactionHash: string } | null>(null)
+  const [recordError, setRecordError] = useState<{ routeId: number; message: string } | null>(null)
+  const routeGuardAddress = import.meta.env.VITE_ROUTEGUARD_CONTRACT_ADDRESS?.trim() ?? ''
+  const hasConfiguredContract = /^0x[a-fA-F0-9]{40}$/.test(routeGuardAddress)
+
+  const handleRecordAssessment = async (route: Route) => {
+    setRecordingRouteId(route.id)
+    setRecordResult(null)
+    setRecordError(null)
+
+    try {
+      const { recordRouteAssessment } = await import('../services/routeAssessment')
+      const result = await recordRouteAssessment(route, routeGuardAddress)
+      setRecordResult({ routeId: route.id, transactionHash: result.transactionHash })
+    } catch (error) {
+      setRecordError({
+        routeId: route.id,
+        message: error instanceof Error ? error.message : 'Assessment could not be recorded.',
+      })
+    } finally {
+      setRecordingRouteId(null)
+    }
+  }
 
   // Filter routes according to selected criterion
   const filteredRoutes = routes.filter((r) => {
@@ -315,8 +339,25 @@ export function RouteComparisonTab({
                     <span>Simulate Transfer</span>
                     <ZapIcon style={{ width: 13, height: 13 }} />
                   </button>
+                  {hasConfiguredContract && (
+                    <button
+                      type="button"
+                      className="btn-select"
+                      disabled={recordingRouteId !== null}
+                      onClick={() => handleRecordAssessment(route)}
+                    >
+                      {recordingRouteId === route.id ? 'Confirm in wallet...' : 'Record assessment on-chain'}
+                    </button>
+                  )}
                 </div>
               </div>
+
+              {recordResult?.routeId === route.id && (
+                <p className="field-help" role="status">Recorded. Transaction: {recordResult.transactionHash}</p>
+              )}
+              {recordError?.routeId === route.id && (
+                <p className="field-help" role="alert">{recordError.message}</p>
+              )}
             </article>
           )
         })}
