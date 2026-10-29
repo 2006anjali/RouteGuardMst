@@ -4,6 +4,7 @@ import type { Route } from './types/route'
 import type { TrackedTransaction } from './types/transaction'
 import { DEMO_ROUTES, INITIAL_TRANSACTIONS } from './services/mockData'
 import { calculateRouteFees } from './services/feeCalculator'
+import { createTransactionId } from './services/transactionId'
 import { DemoDisclaimerBanner } from './components/DemoBanner'
 import { OverviewTab } from './pages/OverviewTab'
 import { RouteComparisonTab } from './pages/RouteComparisonTab'
@@ -78,7 +79,7 @@ export function App() {
   const handleStartSimulation = (route: Route, transferAmount: string, destAddr: string) => {
     const fees = calculateRouteFees(route, transferAmount)
     const randomHex = () => Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('')
-    const newId = `tx-rg-${Math.floor(1000 + Math.random() * 9000)}`
+    const newId = createTransactionId(transactions)
     const sourceTx = `0x${randomHex()}`
 
     const newTx: TrackedTransaction = {

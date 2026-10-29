@@ -2477,6 +2477,7 @@ h1 {
 }
 
 .btn-inspect {
+  cursor: pointer;
   padding: 4px 9px;
   background: rgba(16, 185, 129, 0.1);
   border: 1px solid rgba(16, 185, 129, 0.3);

@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import type { TrackedTransaction, StageId, ActivityLog } from '../types/transaction'
 import type { Route } from '../types/route'
 import { calculateRouteFees } from '../services/feeCalculator'
+import { createTransactionId } from '../services/transactionId'
 import { DemoBadge } from '../components/DemoBanner'
 import {
   ShieldIcon,
@@ -42,9 +43,25 @@ export function TransactionTrackerTab({
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'in_progress' | 'completed'>('all')
   const [isSimulatingLive, setIsSimulatingLive] = useState(false)
+  const detailsPanelRef = useRef<HTMLElement>(null)
+  const [pendingInspectId, setPendingInspectId] = useState<string | null>(null)
 
   // Find currently active transaction to display in detailed 4-stage view
   const activeTx = transactions.find((t) => t.id === activeTransactionId) ?? transactions[0]
+
+  const handleInspectTransaction = (id: string) => {
+    setPendingInspectId(id)
+    onSelectTransaction(id)
+  }
+
+  useEffect(() => {
+    if (pendingInspectId !== activeTransactionId) {
+      return
+    }
+
+    detailsPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    setPendingInspectId(null)
+  }, [activeTransactionId, pendingInspectId])
 
   // Copy hash helper with visual feedback
   const handleCopy = (text: string) => {
@@ -126,7 +143,7 @@ export function TransactionTrackerTab({
     const selectedRoute = routes.find((r) => r.id === selectedRouteId) ?? routes[0]
     const fees = calculateRouteFees(selectedRoute, amount)
     const randomHex = () => Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('')
-    const newId = `tx-rg-${Math.floor(1000 + Math.random() * 9000)}`
+    const newId = createTransactionId(transactions)
     const sourceTx = `0x${randomHex()}`
 
     const newTx: TrackedTransaction = {
@@ -242,7 +259,7 @@ export function TransactionTrackerTab({
 
       {/* Main Tracker Area */}
       {activeTx ? (
-        <section className="active-tracker-card panel highlight-border">
+        <section ref={detailsPanelRef} className="active-tracker-card panel highlight-border">
           <div className="active-tracker-header">
             <div>
               <div className="tx-meta-chips">
@@ -496,7 +513,7 @@ export function TransactionTrackerTab({
                       <button
                         type="button"
                         className="btn-inspect"
-                        onClick={() => onSelectTransaction(tx.id)}
+                        onClick={() => handleInspectTransaction(tx.id)}
                       >
                         Inspect
                       </button>
