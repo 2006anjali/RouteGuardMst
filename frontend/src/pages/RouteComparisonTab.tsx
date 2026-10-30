@@ -1,7 +1,16 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { Route } from '../types/route'
 import { calculateRouteFees } from '../services/feeCalculator'
 import { evaluateRouteRisk } from '../services/riskEngine'
+import {
+  createRouteAssessmentPayload,
+  isValidRouteGuardAddress,
+  recordRouteAssessment,
+  routeGuardContractAddress,
+  MST_CORAL_EXPLORER_URL,
+  tryAcquireAssessmentSubmission,
+  type RouteAssessmentPayload,
+} from '../services/routeAssessment'
 import { DemoBadge } from '../components/DemoBanner'
 import {
   ShieldIcon,
@@ -24,6 +33,19 @@ interface RouteComparisonTabProps {
 }
 
 type FilterOption = 'all' | 'safest' | 'fastest' | 'best_fee' | 'low_risk' | 'high_risk'
+type AssessmentTransactionStatus = 'awaiting-wallet' | 'pending' | 'success' | 'failed' | 'rejected'
+
+interface AssessmentReview {
+  route: Route
+  payload: RouteAssessmentPayload
+}
+
+interface AssessmentTransaction {
+  routeId: number
+  status: AssessmentTransactionStatus
+  transactionHash?: string
+  message: string
+}
 
 export function RouteComparisonTab({
   routes,
@@ -36,29 +58,130 @@ export function RouteComparisonTab({
 }: RouteComparisonTabProps) {
   const [filter, setFilter] = useState<FilterOption>('all')
   const [expandedRouteId, setExpandedRouteId] = useState<number | null>(selectedRouteId)
+  const [assessmentReview, setAssessmentReview] = useState<AssessmentReview | null>(null)
+  const [assessmentTransaction, setAssessmentTransaction] = useState<AssessmentTransaction | null>(null)
   const [recordingRouteId, setRecordingRouteId] = useState<number | null>(null)
-  const [recordResult, setRecordResult] = useState<{ routeId: number; transactionHash: string } | null>(null)
-  const [recordError, setRecordError] = useState<{ routeId: number; message: string } | null>(null)
-  const routeGuardAddress = import.meta.env.VITE_ROUTEGUARD_CONTRACT_ADDRESS?.trim() ?? ''
-  const hasConfiguredContract = /^0x[a-fA-F0-9]{40}$/.test(routeGuardAddress)
+  const [hasSuccessfulAssessment, setHasSuccessfulAssessment] = useState(false)
+  const submissionLock = useRef(false)
+  const hasConfiguredContract = isValidRouteGuardAddress(routeGuardContractAddress)
 
-  const handleRecordAssessment = async (route: Route) => {
+  const handleReviewAssessment = (route: Route) => {
+    setAssessmentTransaction(null)
+    setHasSuccessfulAssessment(false)
+    setAssessmentReview({ route, payload: createRouteAssessmentPayload(route) })
+  }
+
+  const handleConfirmAssessment = async (review: AssessmentReview) => {
+    if (!tryAcquireAssessmentSubmission(submissionLock)) return
+    const { route, payload } = review
+    let submittedHash: string | undefined
     setRecordingRouteId(route.id)
-    setRecordResult(null)
-    setRecordError(null)
+    setAssessmentTransaction({
+      routeId: route.id,
+      status: 'awaiting-wallet',
+      message: 'Waiting for your confirmation in MetaMask. No transaction is sent until you approve it there.',
+    })
 
     try {
-      const { recordRouteAssessment } = await import('../services/routeAssessment')
-      const result = await recordRouteAssessment(route, routeGuardAddress)
-      setRecordResult({ routeId: route.id, transactionHash: result.transactionHash })
+      const result = await recordRouteAssessment(payload, (transactionHash) => {
+        submittedHash = transactionHash
+        setAssessmentReview(null)
+        setAssessmentTransaction({
+          routeId: route.id,
+          status: 'pending',
+          transactionHash,
+          message: 'Transaction submitted to MST Coral and waiting for block confirmation.',
+        })
+      }, routeGuardContractAddress)
+
+      if (result.receipt?.status === 1) {
+        setHasSuccessfulAssessment(true)
+        setAssessmentTransaction({
+          routeId: route.id,
+          status: 'success',
+          transactionHash: result.transactionHash,
+          message: 'Assessment recorded successfully on MST Coral.',
+        })
+      } else {
+        setAssessmentTransaction({
+          routeId: route.id,
+          status: 'failed',
+          transactionHash: result.transactionHash,
+          message: 'The transaction was mined but did not succeed.',
+        })
+      }
     } catch (error) {
-      setRecordError({
+      const errorCode = typeof error === 'object' && error !== null && 'code' in error
+        ? error.code
+        : undefined
+      setAssessmentTransaction({
         routeId: route.id,
-        message: error instanceof Error ? error.message : 'Assessment could not be recorded.',
+        status: submittedHash ? 'pending' : errorCode === 'ACTION_REJECTED' ? 'rejected' : 'failed',
+        transactionHash: submittedHash,
+        message: submittedHash
+          ? 'The transaction was submitted, but confirmation could not be verified. Do not resubmit while its status is uncertain.'
+          : errorCode === 'ACTION_REJECTED'
+          ? 'You rejected the request in MetaMask. No transaction was submitted.'
+          : error instanceof Error ? error.message : 'Assessment could not be recorded.',
       })
     } finally {
+      submissionLock.current = false
       setRecordingRouteId(null)
     }
+  }
+
+  const assessmentStatusLabel: Record<AssessmentTransactionStatus, string> = {
+    'awaiting-wallet': 'Awaiting MetaMask approval',
+    pending: 'Pending confirmation',
+    success: 'Confirmed',
+    failed: 'Failed',
+    rejected: 'Rejected in wallet',
+  }
+
+  const assessmentStatusClass: Record<AssessmentTransactionStatus, string> = {
+    'awaiting-wallet': 'assessment-status-pending',
+    pending: 'assessment-status-pending',
+    success: 'assessment-status-success',
+    failed: 'assessment-status-failed',
+    rejected: 'assessment-status-failed',
+  }
+
+  const getAssessmentExplorerLink = (transactionHash: string) => {
+    return `${MST_CORAL_EXPLORER_URL}/tx/${transactionHash}`
+  }
+
+  const cancelAssessmentReview = () => {
+    setAssessmentReview(null)
+  }
+
+  const clearAssessmentStatus = () => {
+    setAssessmentTransaction(null)
+  }
+
+  const showAssessmentResult = (routeId: number) => {
+    return assessmentTransaction?.routeId === routeId
+  }
+
+  const getAssessmentStatusContent = (transaction: AssessmentTransaction) => {
+    return (
+      <div className={`assessment-transaction ${assessmentStatusClass[transaction.status]}`} role="status" aria-live="polite">
+        <strong>{assessmentStatusLabel[transaction.status]}</strong>
+        <span>{transaction.message}</span>
+        {transaction.transactionHash && (
+          <div className="assessment-transaction-hash">
+            <code>{transaction.transactionHash}</code>
+            <a href={getAssessmentExplorerLink(transaction.transactionHash)} target="_blank" rel="noreferrer">
+              View on MST Coral Explorer
+            </a>
+          </div>
+        )}
+        {(transaction.status === 'success' || transaction.status === 'failed' || transaction.status === 'rejected') && (
+          <button type="button" className="assessment-dismiss" onClick={clearAssessmentStatus}>
+            Dismiss
+          </button>
+        )}
+      </div>
+    )
   }
 
   // Filter routes according to selected criterion
@@ -343,20 +466,52 @@ export function RouteComparisonTab({
                     <button
                       type="button"
                       className="btn-select"
-                      disabled={recordingRouteId !== null}
-                      onClick={() => handleRecordAssessment(route)}
+                      disabled={recordingRouteId !== null || assessmentReview !== null || assessmentTransaction?.status === 'pending'}
+                      onClick={() => handleReviewAssessment(route)}
                     >
-                      {recordingRouteId === route.id ? 'Confirm in wallet...' : 'Record assessment on-chain'}
+                      {hasSuccessfulAssessment ? 'Start new assessment' : 'Review on-chain assessment'}
                     </button>
                   )}
                 </div>
               </div>
 
-              {recordResult?.routeId === route.id && (
-                <p className="field-help" role="status">Recorded. Transaction: {recordResult.transactionHash}</p>
+              {assessmentReview?.route.id === route.id && (
+                <section className="assessment-review" aria-label="Review assessment before submission">
+                  <div className="assessment-review-heading">
+                    <div>
+                      <p className="eyebrow">TRANSACTION REVIEW</p>
+                      <h4>Confirm assessment details</h4>
+                    </div>
+                    <button type="button" className="assessment-dismiss" onClick={cancelAssessmentReview} disabled={recordingRouteId !== null}>
+                      Cancel
+                    </button>
+                  </div>
+                  <p>This will request a transaction on MST Coral. Review the values, then confirm here and approve the request in MetaMask.</p>
+                  <dl className="assessment-review-details">
+                    <div><dt>Route</dt><dd>{assessmentReview.route.name}</dd></div>
+                    <div><dt>Security score</dt><dd>{100 - assessmentReview.payload.riskScore}/100</dd></div>
+                    <div><dt>Contract risk score</dt><dd>{assessmentReview.payload.riskScore}/100</dd></div>
+                    <div><dt>Approval</dt><dd>{assessmentReview.payload.approved ? 'Approved' : 'Not approved'}</dd></div>
+                    <div><dt>Report hash</dt><dd className="assessment-review-hash">{assessmentReview.payload.reportHash}</dd></div>
+                    <div><dt>Contract</dt><dd className="assessment-review-hash">{routeGuardContractAddress}</dd></div>
+                  </dl>
+                  {recordingRouteId === route.id ? (
+                    <p className="assessment-confirmation-prompt" role="status">{assessmentTransaction?.message}</p>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn-select selected"
+                      onClick={() => void handleConfirmAssessment(assessmentReview)}
+                    >
+                      Confirm &amp; submit in MetaMask
+                    </button>
+                  )}
+                </section>
               )}
-              {recordError?.routeId === route.id && (
-                <p className="field-help" role="alert">{recordError.message}</p>
+
+              {showAssessmentResult(route.id) && assessmentTransaction && getAssessmentStatusContent(assessmentTransaction)}
+              {assessmentReview?.route.id !== route.id && recordingRouteId === null && assessmentTransaction?.routeId === route.id && assessmentTransaction.status === 'awaiting-wallet' && (
+                <p className="assessment-confirmation-prompt" role="status">{assessmentTransaction.message}</p>
               )}
             </article>
           )

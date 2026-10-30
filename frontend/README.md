@@ -40,12 +40,12 @@ npm run build
 npm test
 ```
 
-The simulator works without a wallet, RPC credentials, or a deployed contract. It remains a local demo and does not send bridge transactions.
+Route analysis uses mock route data, simulated fee estimates, and simulated transfer lifecycles. The Sepolia label is demo context only; simulated transfers do not connect to Sepolia or create blockchain transactions. The simulator works without a wallet, RPC credentials, or a deployed contract.
 
-## Optional RouteGuard Assessment Contract
+## RouteGuard Assessment Contract
 
-The Route Analysis page can optionally submit the selected route's assessment to the `RouteGuard` contract. The control is shown only when `VITE_ROUTEGUARD_CONTRACT_ADDRESS` is set to a valid contract address. If it is unset, the regular simulation UI continues to work as before.
+The Overview page reads assessment ID `1` and `nextAssessmentId` from the deployed RouteGuard contract on MST Coral using the public Coral RPC. This panel is read-only and does not require a wallet connection.
 
-The current Hardhat configuration targets MST Coral (chain ID `54635`). The connected wallet must already be on that network; the frontend deliberately does not switch networks automatically. Submitting an assessment opens the wallet for explicit transaction approval and consumes the wallet's network fee token. The assessment stores a hash of the report content, not the full report.
+The panel also checks MetaMask's current chain ID without requesting accounts or changing networks. MetaMask must already be on chain ID `54635` for the network status to show as connected. The assessment stores a report hash, not the full report.
 
-Set the address locally in a frontend `.env.local` file after a trusted deployment has been completed and verified. Do not put private keys, seed phrases, RPC credentials, or other secrets in `VITE_*` variables: Vite exposes those values in the browser bundle. No contract address is currently included in this repository.
+The Route Analysis page's separate optional write action still requires `VITE_ROUTEGUARD_CONTRACT_ADDRESS` and explicit wallet transaction approval. It is not used by the Overview read panel. Do not put private keys, seed phrases, RPC credentials, or other secrets in `VITE_*` variables: Vite exposes those values in the browser bundle.

@@ -11,6 +11,12 @@ import { RouteComparisonTab } from './pages/RouteComparisonTab'
 import { TransactionTrackerTab } from './pages/TransactionTrackerTab'
 import { SecurityCenterTab } from './pages/SecurityCenterTab'
 import { ShieldIcon, LayersIcon, ZapIcon, LockIcon, ChevronDownIcon } from './components/Icons'
+import { getMetaMaskProvider } from './services/walletProvider'
+
+function formatWalletNetwork(chainId: string): string {
+  const parsedChainId = BigInt(chainId)
+  return parsedChainId === 54635n ? 'MST Coral Testnet' : `Chain ID ${parsedChainId}`
+}
 
 export function App() {
   const [activePage, setActivePage] = useState<string>('Overview')
@@ -25,43 +31,73 @@ export function App() {
   // Wallet State
   const [walletAccount, setWalletAccount] = useState<string | null>(null)
   const [walletMessage, setWalletMessage] = useState<string>('Wallet not connected')
+  const [walletNetwork, setWalletNetwork] = useState<string | null>(null)
+  const [isDemoWallet, setIsDemoWallet] = useState(false)
 
-  // Listen to MetaMask account changes if window.ethereum exists
+  // Track account and network changes from the injected wallet.
   useEffect(() => {
-    const eth = (window as Window & { ethereum?: { on?: (event: string, handler: (accounts: string[]) => void) => void } }).ethereum
+    const eth = getMetaMaskProvider()
     if (eth?.on) {
-      eth.on('accountsChanged', (accounts: string[]) => {
+      const handleAccountsChanged = (accounts: string[] | string) => {
+        if (typeof accounts === 'string') return
         if (accounts.length > 0) {
           setWalletAccount(accounts[0])
+          setIsDemoWallet(false)
           setWalletMessage(`Connected: ${accounts[0].slice(0, 6)}...${accounts[0].slice(-4)}`)
         } else {
           setWalletAccount(null)
+          setWalletNetwork(null)
           setWalletMessage('Wallet disconnected')
         }
-      })
+      }
+      const handleChainChanged = (chainId: string[] | string) => {
+        if (typeof chainId !== 'string') return
+        try {
+          const network = formatWalletNetwork(chainId)
+          setWalletNetwork(network)
+          setWalletMessage(`Connected to ${network}`)
+        } catch {
+          setWalletNetwork('Network unavailable')
+          setWalletMessage('Connected; network unavailable')
+        }
+      }
+
+      eth.on('accountsChanged', handleAccountsChanged)
+      eth.on('chainChanged', handleChainChanged)
+      return () => {
+        eth.removeListener?.('accountsChanged', handleAccountsChanged)
+        eth.removeListener?.('chainChanged', handleChainChanged)
+      }
     }
   }, [])
 
   async function connectWallet() {
-    const eth = (window as Window & {
-      ethereum?: {
-        request: (args: { method: string }) => Promise<string[]>
-      }
-    }).ethereum
+    const eth = getMetaMaskProvider()
 
     if (!eth) {
       // Graceful fallback for testnet prototype: connect simulated demo wallet
       const mockAddress = '0x71C849B231998502B215E9330B58482EaEb149B2'
       setWalletAccount(mockAddress)
+      setWalletNetwork(null)
+      setIsDemoWallet(true)
       setWalletMessage(`Demo Wallet: ${mockAddress.slice(0, 6)}...${mockAddress.slice(-4)}`)
       return
     }
 
     try {
-      const accounts = await eth.request({ method: 'eth_requestAccounts' })
+      const accounts = await eth.request({ method: 'eth_requestAccounts' }) as string[]
       if (accounts[0]) {
         setWalletAccount(accounts[0])
-        setWalletMessage(`Connected: ${accounts[0].slice(0, 6)}...${accounts[0].slice(-4)}`)
+        setIsDemoWallet(false)
+        try {
+          const chainId = await eth.request({ method: 'eth_chainId' }) as string
+          const network = formatWalletNetwork(chainId)
+          setWalletNetwork(network)
+          setWalletMessage(`Connected to ${network}: ${accounts[0].slice(0, 6)}...${accounts[0].slice(-4)}`)
+        } catch {
+          setWalletNetwork('Network unavailable')
+          setWalletMessage(`Connected: ${accounts[0].slice(0, 6)}...${accounts[0].slice(-4)}; network unavailable`)
+        }
       } else {
         setWalletMessage('No account returned from wallet')
       }
@@ -72,15 +108,15 @@ export function App() {
 
   function disconnectWallet() {
     setWalletAccount(null)
+    setWalletNetwork(null)
+    setIsDemoWallet(false)
     setWalletMessage('Wallet disconnected')
   }
 
   // Handle launching a new simulation from any tab
   const handleStartSimulation = (route: Route, transferAmount: string, destAddr: string) => {
     const fees = calculateRouteFees(route, transferAmount)
-    const randomHex = () => Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('')
     const newId = createTransactionId(transactions)
-    const sourceTx = `0x${randomHex()}`
 
     const newTx: TrackedTransaction = {
       id: newId,
@@ -98,7 +134,7 @@ export function App() {
       progressPercent: 25,
       createdAt: 'Just now',
       updatedAt: 'Just now',
-      sourceTxHash: sourceTx,
+      sourceTxHash: '',
       destinationTxHash: '',
       isDemo: true,
       stages: [
@@ -107,7 +143,6 @@ export function App() {
           title: 'Source Chain Deposit',
           description: `User signed deposit of ${transferAmount || '0.1'} ${route.fromToken} on ${route.fromChain}.`,
           chain: route.fromChain,
-          txHash: `${sourceTx.slice(0, 8)}...${sourceTx.slice(-6)}`,
           completedAt: 'Just now',
           isSimulated: true,
         },
@@ -209,7 +244,7 @@ export function App() {
               <span className="pulse-indicator" />
               <strong>Sandbox Environment</strong>
             </div>
-            <p className="network-card-desc">Connected to Sepolia testnet simulation pool (Chain ID 11155111).</p>
+              <p className="network-card-desc">Simulation context: Ethereum Sepolia (Chain ID 11155111). Route data and transfers are simulated; no Sepolia transaction is sent.</p>
           </div>
 
           <div className="profile-card">
@@ -250,7 +285,7 @@ export function App() {
               <ChevronDownIcon style={{ width: 12, height: 12, opacity: 0.6 }} />
             </div>
 
-            <span className="demo-pill">TESTNET SIMULATION</span>
+            <span className="demo-pill">SIMULATION: ETHEREUM SEPOLIA</span>
 
             {/* Wallet Connect Button */}
             {walletAccount ? (
@@ -258,11 +293,12 @@ export function App() {
                 <button
                   type="button"
                   className="wallet-button connected"
-                  title={`${walletMessage} (Click to disconnect)`}
+                  title={`${walletMessage} (Click to clear the app's local wallet state; MetaMask permissions may remain enabled)`}
                   onClick={disconnectWallet}
                 >
                   <span className="wallet-status-dot" />
                   <span className="wallet-address">{walletAccount.slice(0, 6)}...{walletAccount.slice(-4)}</span>
+                  <span className="wallet-network-label">{isDemoWallet ? 'Demo wallet' : walletNetwork ?? 'Checking network'}</span>
                 </button>
               </div>
             ) : (
@@ -317,6 +353,8 @@ export function App() {
               destinationAddress={destinationAddress}
               onChangeDestinationAddress={setDestinationAddress}
               walletAccount={walletAccount}
+              walletNetwork={walletNetwork}
+              isDemoWallet={isDemoWallet}
               transactions={transactions}
               onNavigateTab={setActivePage}
               onStartSimulation={handleStartSimulation}

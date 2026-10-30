@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { DemoBadge } from '../components/DemoBanner'
 import { validateEvmAddress } from '../services/riskEngine'
+import { OnChainAssessmentHistory } from '../components/OnChainAssessmentHistory'
 import {
   ShieldIcon,
   AlertTriangleIcon,
@@ -50,12 +51,18 @@ export function SecurityCenterTab() {
           <div className="security-header-badges">
             <span className="security-tag-verified">
               <CheckCircleIcon style={{ width: 13, height: 13 }} />
-              Formally Modeled Rules
+              Security Reference Rules
             </span>
             <DemoBadge label="OFFLINE INTELLIGENCE" variant="accent" />
           </div>
         </div>
       </section>
+
+      <OnChainAssessmentHistory />
+
+      <p className="security-reference-note">
+        The taxonomy, threat classes, checklist, and address format checker below are reference/offline features. They are not contract-verified security findings.
+      </p>
 
       {/* Two Column Grid */}
       <div className="content-grid">

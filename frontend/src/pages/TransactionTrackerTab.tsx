@@ -4,6 +4,12 @@ import type { Route } from '../types/route'
 import { calculateRouteFees } from '../services/feeCalculator'
 import { createTransactionId } from '../services/transactionId'
 import { DemoBadge } from '../components/DemoBanner'
+import { fetchAssessmentHistory, getLatestAssessmentRecord } from '../services/assessmentHistory'
+import type { OnChainAssessmentRecord } from '../types/assessment'
+import {
+  ROUTEGUARD_CONTRACT_ADDRESS,
+} from '../services/onChainAssessment'
+import { MST_CORAL_EXPLORER_URL } from '../services/routeAssessment'
 import {
   ShieldIcon,
   ZapIcon,
@@ -45,6 +51,26 @@ export function TransactionTrackerTab({
   const [isSimulatingLive, setIsSimulatingLive] = useState(false)
   const detailsPanelRef = useRef<HTMLElement>(null)
   const [pendingInspectId, setPendingInspectId] = useState<string | null>(null)
+  const [assessmentTransaction, setAssessmentTransaction] = useState<OnChainAssessmentRecord | null>(null)
+  const [assessmentLoading, setAssessmentLoading] = useState(true)
+  const [assessmentError, setAssessmentError] = useState<string | null>(null)
+
+  const refreshAssessmentTransaction = async () => {
+    setAssessmentLoading(true)
+    setAssessmentError(null)
+    try {
+      const records = await fetchAssessmentHistory()
+      setAssessmentTransaction(getLatestAssessmentRecord(records))
+    } catch (error) {
+      setAssessmentError(error instanceof Error ? error.message : 'Unable to read assessment transaction from MST Coral.')
+    } finally {
+      setAssessmentLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void refreshAssessmentTransaction()
+  }, [])
 
   // Find currently active transaction to display in detailed 4-stage view
   const activeTx = transactions.find((t) => t.id === activeTransactionId) ?? transactions[0]
@@ -91,10 +117,10 @@ export function TransactionTrackerTab({
         const newProgress = progressSteps[currentIndex + 1]
 
         const stageDescriptions: Record<StageId, string> = {
-          source_initiated: 'Source transaction confirmed on Sepolia testnet.',
-          relayer_inflight: 'Bridge relayer quorum validated cryptographic receipt.',
-          destination_executed: 'Transfer execution confirmed on destination rollup.',
-          finalized: 'State proof confirmed on L1. Cross-chain transfer finalized.',
+          source_initiated: 'Simulated source step completed; no blockchain transaction was sent.',
+          relayer_inflight: 'Simulated relayer progress; no external relayer was contacted.',
+          destination_executed: 'Simulated destination step completed; no destination transaction was sent.',
+          finalized: 'Demo lifecycle reached its final stage; no on-chain settlement occurred.',
         }
 
         const newLog: ActivityLog = {
@@ -109,7 +135,6 @@ export function TransactionTrackerTab({
             return {
               ...st,
               completedAt: 'Just now',
-              txHash: nextStage === 'destination_executed' ? `0x${Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('')}` : st.txHash,
             }
           }
           return st
@@ -142,9 +167,7 @@ export function TransactionTrackerTab({
   const handleLaunchNewTransfer = () => {
     const selectedRoute = routes.find((r) => r.id === selectedRouteId) ?? routes[0]
     const fees = calculateRouteFees(selectedRoute, amount)
-    const randomHex = () => Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('')
     const newId = createTransactionId(transactions)
-    const sourceTx = `0x${randomHex()}`
 
     const newTx: TrackedTransaction = {
       id: newId,
@@ -162,7 +185,7 @@ export function TransactionTrackerTab({
       progressPercent: 25,
       createdAt: 'Just now',
       updatedAt: 'Just now',
-      sourceTxHash: sourceTx,
+      sourceTxHash: '',
       destinationTxHash: '',
       isDemo: true,
       stages: [
@@ -171,7 +194,6 @@ export function TransactionTrackerTab({
           title: 'Source Chain Deposit',
           description: `User signed deposit of ${amount || '0.1'} ${selectedRoute.fromToken} on ${selectedRoute.fromChain}.`,
           chain: selectedRoute.fromChain,
-          txHash: `${sourceTx.slice(0, 8)}...${sourceTx.slice(-6)}`,
           completedAt: 'Just now',
           isSimulated: true,
         },
@@ -241,7 +263,7 @@ export function TransactionTrackerTab({
             <p className="eyebrow">CROSS-CHAIN LIFECYCLE MONITOR</p>
             <h2>4-Stage Transaction Tracker</h2>
             <p className="subtitle">
-              Inspect simulated transfer progress across source chain submission, relayer attestation, destination execution, and final state settlement.
+              Inspect demo-only simulated transfer progress across source, relayer, destination, and settlement stages. Real blockchain transactions are listed separately below.
             </p>
           </div>
           <div className="tracker-actions">
@@ -257,6 +279,69 @@ export function TransactionTrackerTab({
         </div>
       </section>
 
+      <section className="panel real-assessment-transaction" aria-labelledby="real-assessment-transaction-title">
+        <div className="panel-heading real-assessment-heading">
+          <div>
+            <p className="eyebrow">REAL MST CORAL TESTNET TRANSACTION</p>
+            <h2 id="real-assessment-transaction-title">On-Chain Assessment</h2>
+          </div>
+          <button
+            type="button"
+            className="on-chain-refresh"
+            onClick={() => void refreshAssessmentTransaction()}
+            disabled={assessmentLoading}
+          >
+            {assessmentLoading ? 'Checking...' : 'Refresh'}
+          </button>
+        </div>
+
+        {assessmentLoading && !assessmentTransaction ? (
+          <p className="assessment-transaction-message" role="status">Reading the latest assessment from MST Coral...</p>
+        ) : assessmentError ? (
+          <p className="assessment-transaction-error" role="alert">Could not load assessment history: {assessmentError}</p>
+        ) : !assessmentTransaction ? (
+          <p className="assessment-transaction-message" role="status">No on-chain assessment records were found for this contract.</p>
+        ) : (
+          <>
+            <div className="real-assessment-status status-success" role="status" aria-live="polite">
+              Assessment #{assessmentTransaction.id} stored on-chain
+              {assessmentTransaction.blockNumber != null && <span>Block {assessmentTransaction.blockNumber}</span>}
+            </div>
+            <dl className="real-assessment-details">
+              <div><dt>Network</dt><dd>MST Coral Testnet (Chain ID 54635)</dd></div>
+              <div><dt>Contract</dt><dd className="real-assessment-mono">{ROUTEGUARD_CONTRACT_ADDRESS}</dd></div>
+              <div><dt>Assessment ID</dt><dd>{assessmentTransaction.id}</dd></div>
+              <div><dt>Route</dt><dd>{assessmentTransaction.routeName}</dd></div>
+              <div><dt>Recorded risk score</dt><dd>{assessmentTransaction.riskScore}/100</dd></div>
+              <div><dt>Approval</dt><dd>{assessmentTransaction.approved ? 'Approved' : 'Not approved'}</dd></div>
+              <div><dt>Assessor</dt><dd className="real-assessment-mono">{assessmentTransaction.assessor}</dd></div>
+              <div>
+                <dt>Timestamp</dt>
+                <dd>
+                  {new Date(Number(assessmentTransaction.timestamp) * 1000).toLocaleString()}
+                  <span className="on-chain-timestamp"> Unix: {assessmentTransaction.timestamp}</span>
+                </dd>
+              </div>
+              {assessmentTransaction.blockNumber != null && <div><dt>Block number</dt><dd>{assessmentTransaction.blockNumber}</dd></div>}
+              <div className="real-assessment-hash-row">
+                <dt>Transaction hash</dt>
+                <dd className="real-assessment-mono">{assessmentTransaction.transactionHash ?? 'Unavailable from matching contract event logs'}</dd>
+              </div>
+            </dl>
+            {assessmentTransaction.transactionHash && (
+              <a
+                className="real-assessment-explorer-link"
+                href={`${MST_CORAL_EXPLORER_URL}/tx/${assessmentTransaction.transactionHash}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <ExternalLinkIcon style={{ width: 13, height: 13 }} /> View transaction on MST Coral Explorer
+              </a>
+            )}
+          </>
+        )}
+      </section>
+
       {/* Main Tracker Area */}
       {activeTx ? (
         <section ref={detailsPanelRef} className="active-tracker-card panel highlight-border">
@@ -268,7 +353,7 @@ export function TransactionTrackerTab({
                   {activeTx.status === 'in_progress' ? '● IN-FLIGHT' : '✓ FINALIZED'}
                 </span>
                 <span className="protocol-badge">{activeTx.protocol}</span>
-                <DemoBadge label="SIMULATED TRANSACTION" variant="subtle" />
+                <DemoBadge label="SIMULATED · NO ON-CHAIN TRANSACTION" variant="subtle" />
               </div>
               <h3>
                 {activeTx.amount} {activeTx.token} via {activeTx.routeName}
@@ -353,24 +438,22 @@ export function TransactionTrackerTab({
             <div className="hash-item">
               <div className="hash-header">
                 <span className="hash-label">Source Tx Hash ({activeTx.fromChain}):</span>
-                <span className="explorer-demo-pill">
-                  <ExternalLinkIcon style={{ width: 11, height: 11 }} /> Sepolia Etherscan (demo)
-                </span>
+                <span className="explorer-demo-pill">SIMULATED · NO EXPLORER RECORD</span>
               </div>
               <div className="hash-box">
-                <code>{activeTx.sourceTxHash}</code>
-                <button
-                  type="button"
-                  className="btn-copy-hash"
-                  onClick={() => handleCopy(activeTx.sourceTxHash)}
-                  title="Copy Hash"
-                >
-                  {copiedHash === activeTx.sourceTxHash ? (
-                    <CheckIcon style={{ width: 13, height: 13, color: '#10b981' }} />
-                  ) : (
-                    <CopyIcon style={{ width: 13, height: 13 }} />
-                  )}
-                </button>
+                <code>{activeTx.sourceTxHash || 'No on-chain transaction hash (simulation only)'}</code>
+                {activeTx.sourceTxHash && <button
+                    type="button"
+                    className="btn-copy-hash"
+                    onClick={() => handleCopy(activeTx.sourceTxHash)}
+                    title="Copy Hash"
+                  >
+                    {copiedHash === activeTx.sourceTxHash ? (
+                      <CheckIcon style={{ width: 13, height: 13, color: '#10b981' }} />
+                    ) : (
+                      <CopyIcon style={{ width: 13, height: 13 }} />
+                    )}
+                  </button>}
               </div>
             </div>
 
@@ -422,7 +505,7 @@ export function TransactionTrackerTab({
         <div className="history-header">
           <div>
             <p className="eyebrow">TRANSFER AUDIT HISTORY</p>
-            <h2>Tracked Cross-Chain Transfers ({filteredTransactions.length})</h2>
+            <h2>Simulated Cross-Chain Transfers ({filteredTransactions.length})</h2>
           </div>
 
           <div className="history-filters">

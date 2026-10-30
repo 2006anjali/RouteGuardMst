@@ -7,13 +7,13 @@ export function DemoDisclaimerBanner() {
         <span className="demo-status-pulse" />
         <span className="demo-badge-primary">SIMULATION SANDBOX</span>
         <p className="demo-disclaimer-text">
-          <strong>Interactive Testnet Benchmark:</strong> All bridge parameters, fee estimates, and transaction lifecycles are simulated. No live mainnet contracts or real funds are called.
+          <strong>Demo simulation:</strong> Route analysis, mock route data, fee estimates, and transfer lifecycles are simulated. Sepolia is context only; simulated transfers are not blockchain transactions.
         </p>
       </div>
       <div className="demo-disclaimer-right">
         <div className="demo-chain-tag">
           <InfoIcon style={{ width: 13, height: 13 }} />
-          <span>Sepolia Context</span>
+          <span>Simulated Sepolia Context</span>
         </div>
       </div>
     </div>

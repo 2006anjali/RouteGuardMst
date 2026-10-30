@@ -4,6 +4,7 @@ import type { TrackedTransaction } from '../types/transaction'
 import { calculateRouteFees } from '../services/feeCalculator'
 import { evaluateRouteRisk, validateEvmAddress } from '../services/riskEngine'
 import { DemoBadge } from '../components/DemoBanner'
+import { OnChainAssessmentPanel } from '../components/OnChainAssessmentPanel'
 import {
   ShieldIcon,
   ZapIcon,
@@ -23,6 +24,8 @@ interface OverviewTabProps {
   destinationAddress: string
   onChangeDestinationAddress: (val: string) => void
   walletAccount: string | null
+  walletNetwork: string | null
+  isDemoWallet: boolean
   transactions: TrackedTransaction[]
   onNavigateTab: (tab: string) => void
   onStartSimulation: (route: Route, amount: string, destAddress: string) => void
@@ -37,6 +40,8 @@ export function OverviewTab({
   destinationAddress,
   onChangeDestinationAddress,
   walletAccount,
+  walletNetwork,
+  isDemoWallet,
   transactions,
   onNavigateTab,
   onStartSimulation,
@@ -65,6 +70,8 @@ export function OverviewTab({
 
   return (
     <div className="tab-container">
+      <OnChainAssessmentPanel />
+
       {/* Executive Key Metric Cards */}
       <section className="stats-grid" aria-label="Key Security Metrics">
         <article className="stat-card">
@@ -135,7 +142,7 @@ export function OverviewTab({
           </div>
           <div className="stat-foot">
             <span className="pulse-dot-green" />
-            <span>Real-time testnet state machine</span>
+            <span>Simulated cross-chain lifecycle</span>
           </div>
         </article>
 
@@ -150,10 +157,17 @@ export function OverviewTab({
             <div className="stat-value small-value">
               {walletAccount ? `${walletAccount.slice(0, 6)}...${walletAccount.slice(-4)}` : 'Disconnected'}
             </div>
-            {walletAccount && <span className="stat-badge-connected">Active</span>}
+            {walletAccount && <span className="stat-badge-connected">{isDemoWallet ? 'Demo' : 'Active'}</span>}
           </div>
-          <div className="stat-foot">
-            <span className="mono-foot">{walletAccount ? 'Sepolia EVM account' : 'Ready to connect'}</span>
+          <div className="stat-foot wallet-stat-foot">
+            <span className="mono-foot">
+              {walletAccount
+                ? isDemoWallet
+                  ? 'Demo wallet; no network connected'
+                  : `Wallet network: ${walletNetwork ?? 'Checking network...'}`
+                : 'No wallet connected'}
+            </span>
+            <span className="mono-foot">Simulation context: Ethereum Sepolia</span>
           </div>
         </article>
       </section>
