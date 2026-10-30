@@ -68,6 +68,7 @@ export function OnChainAssessmentHistory() {
                   <dt>Timestamp</dt>
                   <dd>{new Date(Number(record.timestamp) * 1000).toLocaleString()}</dd>
                 </div>
+                {record.blockNumber != null && <div><dt>Block number</dt><dd>{record.blockNumber}</dd></div>}
                 <div><dt>Contract</dt><dd className="assessment-history-mono">{ROUTEGUARD_CONTRACT_ADDRESS}</dd></div>
                 <div className="assessment-history-transaction">
                   <dt>Transaction hash</dt>

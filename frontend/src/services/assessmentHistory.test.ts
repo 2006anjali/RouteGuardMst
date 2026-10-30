@@ -89,5 +89,6 @@ describe('on-chain assessment history', () => {
     const records = await fetchAssessmentHistory(() => reader)
     expect(records).toHaveLength(2)
     expect(records.every((record) => record.transactionHash === null)).toBe(true)
+    expect(records.every((record) => record.blockNumber === null)).toBe(true)
   })
 })

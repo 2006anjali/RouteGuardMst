@@ -207,7 +207,7 @@ export function RouteComparisonTab({
             <p className="eyebrow">CROSS-CHAIN PROTOCOL MATRIX</p>
             <h2>Route Comparison &amp; Architecture Audit</h2>
             <p className="subtitle">
-              Inspect bridge security architecture, validator decentralization, formal audit reports, and dynamic fee estimates side-by-side.
+              Inspect bridge security architecture, validator models, unverified demo audit references, and simulated fee estimates side-by-side.
             </p>
           </div>
           <div className="comparison-controls">
@@ -408,7 +408,7 @@ export function RouteComparisonTab({
 
                   {/* Audit Reports */}
                   <div className="audit-credentials">
-                    <span className="audit-label">Security Audits on Record:</span>
+                    <span className="audit-label">Unverified demo audit references:</span>
                     <div className="audit-pills">
                       {route.riskProfile.audits.map((audit, i) => (
                         <span key={i} className="audit-pill">

@@ -1,8 +1,15 @@
 import { useState, useEffect, useRef } from 'react'
-import type { TrackedTransaction, StageId, ActivityLog } from '../types/transaction'
+import type { TrackedTransaction, StageId } from '../types/transaction'
 import type { Route } from '../types/route'
-import { calculateRouteFees } from '../services/feeCalculator'
-import { createTransactionId } from '../services/transactionId'
+import {
+  advanceSimulatedTransaction,
+  createSimulatedTransaction,
+  filterSimulatedTransactions,
+  getTransactionStatusLabel,
+  SIMULATED_STAGE_SEQUENCE,
+  SIMULATED_STAGE_TITLES,
+  type TransactionStatusFilter,
+} from '../services/simulatedTransactions'
 import { DemoBadge } from '../components/DemoBanner'
 import { fetchAssessmentHistory, getLatestAssessmentRecord } from '../services/assessmentHistory'
 import type { OnChainAssessmentRecord } from '../types/assessment'
@@ -47,8 +54,8 @@ export function TransactionTrackerTab({
 }: TransactionTrackerTabProps) {
   const [copiedHash, setCopiedHash] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
-  const [statusFilter, setStatusFilter] = useState<'all' | 'in_progress' | 'completed'>('all')
-  const [isSimulatingLive, setIsSimulatingLive] = useState(false)
+  const [statusFilter, setStatusFilter] = useState<TransactionStatusFilter>('all')
+  const [simulatingTransactionId, setSimulatingTransactionId] = useState<string | null>(null)
   const detailsPanelRef = useRef<HTMLElement>(null)
   const [pendingInspectId, setPendingInspectId] = useState<string | null>(null)
   const [assessmentTransaction, setAssessmentTransaction] = useState<OnChainAssessmentRecord | null>(null)
@@ -98,161 +105,38 @@ export function TransactionTrackerTab({
 
   // Live simulation tick effect: advances active transaction if it's in-progress
   useEffect(() => {
-    if (!isSimulatingLive || !activeTx || activeTx.status !== 'in_progress') {
+    if (!activeTx || activeTx.id !== simulatingTransactionId || activeTx.status !== 'in_progress') {
       return
     }
 
     const timer = setInterval(() => {
-      const stageSequence: StageId[] = [
-        'source_initiated',
-        'relayer_inflight',
-        'destination_executed',
-        'finalized',
-      ]
-      const currentIndex = stageSequence.indexOf(activeTx.currentStage)
-
-      if (currentIndex < stageSequence.length - 1) {
-        const nextStage = stageSequence[currentIndex + 1]
-        const progressSteps = [25, 55, 85, 100]
-        const newProgress = progressSteps[currentIndex + 1]
-
-        const stageDescriptions: Record<StageId, string> = {
-          source_initiated: 'Simulated source step completed; no blockchain transaction was sent.',
-          relayer_inflight: 'Simulated relayer progress; no external relayer was contacted.',
-          destination_executed: 'Simulated destination step completed; no destination transaction was sent.',
-          finalized: 'Demo lifecycle reached its final stage; no on-chain settlement occurred.',
-        }
-
-        const newLog: ActivityLog = {
-          timestamp: 'Just now',
-          stage: nextStage,
-          message: stageDescriptions[nextStage],
-          type: nextStage === 'finalized' ? 'success' : 'info',
-        }
-
-        const updatedStages = activeTx.stages.map((st) => {
-          if (st.id === nextStage) {
-            return {
-              ...st,
-              completedAt: 'Just now',
-            }
-          }
-          return st
-        })
-
-        const isComplete = nextStage === 'finalized'
-
-        onUpdateTransaction({
-          ...activeTx,
-          currentStage: nextStage,
-          progressPercent: newProgress,
-          status: isComplete ? 'completed' : 'in_progress',
-          updatedAt: 'Just now',
-          stages: updatedStages,
-          logs: [newLog, ...activeTx.logs],
-        })
-
-        if (isComplete) {
-          setIsSimulatingLive(false)
-        }
-      } else {
-        setIsSimulatingLive(false)
+      const updatedTransaction = advanceSimulatedTransaction(activeTx)
+      if (!updatedTransaction) {
+        setSimulatingTransactionId(null)
+        return
       }
+
+      onUpdateTransaction(updatedTransaction)
+      if (updatedTransaction.status === 'completed') setSimulatingTransactionId(null)
     }, 3000)
 
     return () => clearInterval(timer)
-  }, [isSimulatingLive, activeTx, onUpdateTransaction])
+  }, [simulatingTransactionId, activeTx, onUpdateTransaction])
 
   // Start new demo transfer
   const handleLaunchNewTransfer = () => {
     const selectedRoute = routes.find((r) => r.id === selectedRouteId) ?? routes[0]
-    const fees = calculateRouteFees(selectedRoute, amount)
-    const newId = createTransactionId(transactions)
-
-    const newTx: TrackedTransaction = {
-      id: newId,
-      routeId: selectedRoute.id,
-      routeName: selectedRoute.name,
-      protocol: selectedRoute.protocolName,
-      fromChain: selectedRoute.fromChain,
-      toChain: selectedRoute.toChain,
-      amount: amount || '0.1',
-      token: selectedRoute.fromToken,
-      estimatedFeeUsd: fees.totalFeeUsd,
-      destinationAddress: destinationAddress.trim() || '0x71C...49b2',
-      status: 'in_progress',
-      currentStage: 'source_initiated',
-      progressPercent: 25,
-      createdAt: 'Just now',
-      updatedAt: 'Just now',
-      sourceTxHash: '',
-      destinationTxHash: '',
-      isDemo: true,
-      stages: [
-        {
-          id: 'source_initiated',
-          title: 'Source Chain Deposit',
-          description: `User signed deposit of ${amount || '0.1'} ${selectedRoute.fromToken} on ${selectedRoute.fromChain}.`,
-          chain: selectedRoute.fromChain,
-          completedAt: 'Just now',
-          isSimulated: true,
-        },
-        {
-          id: 'relayer_inflight',
-          title: 'Relayer In-Flight & Proof Generation',
-          description: `${selectedRoute.protocolName} verifiers validating attestation proof.`,
-          chain: 'Relayer Network',
-          isSimulated: true,
-        },
-        {
-          id: 'destination_executed',
-          title: 'Destination Execution',
-          description: `Releasing assets on ${selectedRoute.toChain}.`,
-          chain: selectedRoute.toChain,
-          isSimulated: true,
-        },
-        {
-          id: 'finalized',
-          title: 'Final Settlement Anchor',
-          description: 'State root verification completed with cryptographic finality.',
-          chain: 'Consensus Final',
-          isSimulated: true,
-        },
-      ],
-      logs: [
-        {
-          timestamp: 'Just now',
-          stage: 'source_initiated',
-          message: `Simulated transfer initialized via ${selectedRoute.name}. Gas fee: $${fees.totalFeeUsd}`,
-          type: 'info',
-        },
-      ],
-    }
+    const newTx = createSimulatedTransaction(selectedRoute, amount, destinationAddress, transactions)
 
     onAddTransaction(newTx)
-    onSelectTransaction(newId)
-    setIsSimulatingLive(true)
+    onSelectTransaction(newTx.id)
+    setSimulatingTransactionId(newTx.id)
   }
 
-  // Filter transaction list
-  const filteredTransactions = transactions.filter((tx) => {
-    const matchesStatus = statusFilter === 'all' || tx.status === statusFilter
-    const matchesSearch =
-      tx.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      tx.routeName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      tx.sourceTxHash.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      tx.fromChain.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      tx.toChain.toLowerCase().includes(searchQuery.toLowerCase())
-    return matchesStatus && matchesSearch
-  })
+  const filteredTransactions = filterSimulatedTransactions(transactions, statusFilter, searchQuery)
 
   // Stage sequence mapping for visual stepper
-  const stagesOrdered: StageId[] = [
-    'source_initiated',
-    'relayer_inflight',
-    'destination_executed',
-    'finalized',
-  ]
+  const stagesOrdered: readonly StageId[] = SIMULATED_STAGE_SEQUENCE
 
   return (
     <div className="tab-container">
@@ -350,7 +234,7 @@ export function TransactionTrackerTab({
               <div className="tx-meta-chips">
                 <span className="tx-id-badge">{activeTx.id}</span>
                 <span className={`status-pill status-${activeTx.status}`}>
-                  {activeTx.status === 'in_progress' ? '● IN-FLIGHT' : '✓ FINALIZED'}
+                  {getTransactionStatusLabel(activeTx.status)}
                 </span>
                 <span className="protocol-badge">{activeTx.protocol}</span>
                 <DemoBadge label="SIMULATED · NO ON-CHAIN TRANSACTION" variant="subtle" />
@@ -367,11 +251,11 @@ export function TransactionTrackerTab({
               {activeTx.status === 'in_progress' && (
                 <button
                   type="button"
-                  className={`btn-toggle-sim ${isSimulatingLive ? 'active-pulse' : ''}`}
-                  onClick={() => setIsSimulatingLive(!isSimulatingLive)}
+                  className={`btn-toggle-sim ${simulatingTransactionId === activeTx.id ? 'active-pulse' : ''}`}
+                  onClick={() => setSimulatingTransactionId(simulatingTransactionId === activeTx.id ? null : activeTx.id)}
                 >
-                  <RefreshIcon className={isSimulatingLive ? 'spin-icon' : ''} style={{ width: 14, height: 14 }} />
-                  <span>{isSimulatingLive ? 'Simulation Running...' : 'Resume Simulation'}</span>
+                  <RefreshIcon className={simulatingTransactionId === activeTx.id ? 'spin-icon' : ''} style={{ width: 14, height: 14 }} />
+                  <span>{simulatingTransactionId === activeTx.id ? 'Pause Simulation' : 'Resume Simulation'}</span>
                 </button>
               )}
             </div>
@@ -412,11 +296,11 @@ export function TransactionTrackerTab({
                     <span className="step-chain-tag">{stageDetail?.chain}</span>
                   </div>
 
-                  <strong>{stageDetail?.title}</strong>
+                  <strong>{stageDetail?.title ?? SIMULATED_STAGE_TITLES[stageId]}</strong>
                   <p className="step-desc">{stageDetail?.description}</p>
 
                   <div className="step-footer">
-                    {stageDetail?.completedAt ? (
+                    {isPast && stageDetail?.completedAt ? (
                       <span className="step-time">
                         <ClockIcon style={{ width: 12, height: 12 }} /> {stageDetail.completedAt}
                       </span>
@@ -541,6 +425,13 @@ export function TransactionTrackerTab({
               >
                 Finalized
               </button>
+              <button
+                type="button"
+                className={`filter-btn ${statusFilter === 'flagged' ? 'active' : ''}`}
+                onClick={() => setStatusFilter('flagged')}
+              >
+                Flagged
+              </button>
             </div>
           </div>
         </div>
@@ -583,11 +474,11 @@ export function TransactionTrackerTab({
                     </td>
                     <td>
                       <span className={`status-pill status-${tx.status}`}>
-                        {tx.status === 'in_progress' ? '● In-Flight' : '✓ Finalized'}
+                        {getTransactionStatusLabel(tx.status)}
                       </span>
                     </td>
                     <td>
-                      <span className="stage-chip">{tx.currentStage.replace('_', ' ')}</span>
+                      <span className="stage-chip">{SIMULATED_STAGE_TITLES[tx.currentStage]}</span>
                     </td>
                     <td>
                       <span className="table-time">{tx.updatedAt}</span>
@@ -611,7 +502,7 @@ export function TransactionTrackerTab({
         {filteredTransactions.length === 0 && (
           <div className="empty-history-notice">
             <InfoIcon style={{ width: 16, height: 16 }} />
-            <span>No transactions match your search filter.</span>
+            <span>No simulated transfers match the current search and status filters.</span>
           </div>
         )}
       </section>

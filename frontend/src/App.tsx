@@ -3,8 +3,7 @@ import './App.css'
 import type { Route } from './types/route'
 import type { TrackedTransaction } from './types/transaction'
 import { DEMO_ROUTES, INITIAL_TRANSACTIONS } from './services/mockData'
-import { calculateRouteFees } from './services/feeCalculator'
-import { createTransactionId } from './services/transactionId'
+import { createSimulatedTransaction } from './services/simulatedTransactions'
 import { DemoDisclaimerBanner } from './components/DemoBanner'
 import { OverviewTab } from './pages/OverviewTab'
 import { RouteComparisonTab } from './pages/RouteComparisonTab'
@@ -115,71 +114,9 @@ export function App() {
 
   // Handle launching a new simulation from any tab
   const handleStartSimulation = (route: Route, transferAmount: string, destAddr: string) => {
-    const fees = calculateRouteFees(route, transferAmount)
-    const newId = createTransactionId(transactions)
-
-    const newTx: TrackedTransaction = {
-      id: newId,
-      routeId: route.id,
-      routeName: route.name,
-      protocol: route.protocolName,
-      fromChain: route.fromChain,
-      toChain: route.toChain,
-      amount: transferAmount || '0.1',
-      token: route.fromToken,
-      estimatedFeeUsd: fees.totalFeeUsd,
-      destinationAddress: destAddr.trim() || '0x71C...49b2',
-      status: 'in_progress',
-      currentStage: 'source_initiated',
-      progressPercent: 25,
-      createdAt: 'Just now',
-      updatedAt: 'Just now',
-      sourceTxHash: '',
-      destinationTxHash: '',
-      isDemo: true,
-      stages: [
-        {
-          id: 'source_initiated',
-          title: 'Source Chain Deposit',
-          description: `User signed deposit of ${transferAmount || '0.1'} ${route.fromToken} on ${route.fromChain}.`,
-          chain: route.fromChain,
-          completedAt: 'Just now',
-          isSimulated: true,
-        },
-        {
-          id: 'relayer_inflight',
-          title: 'Relayer In-Flight & Proof Generation',
-          description: `${route.protocolName} verifiers validating attestation proof.`,
-          chain: 'Relayer Network',
-          isSimulated: true,
-        },
-        {
-          id: 'destination_executed',
-          title: 'Destination Execution',
-          description: `Releasing assets on ${route.toChain}.`,
-          chain: route.toChain,
-          isSimulated: true,
-        },
-        {
-          id: 'finalized',
-          title: 'Final Settlement Anchor',
-          description: 'State root verification completed with cryptographic finality.',
-          chain: 'Consensus Final',
-          isSimulated: true,
-        },
-      ],
-      logs: [
-        {
-          timestamp: 'Just now',
-          stage: 'source_initiated',
-          message: `Simulated transfer initialized via ${route.name}. Total estimated fee: $${fees.totalFeeUsd}`,
-          type: 'info',
-        },
-      ],
-    }
-
+    const newTx = createSimulatedTransaction(route, transferAmount, destAddr, transactions)
     setTransactions((prev) => [newTx, ...prev])
-    setActiveTransactionId(newId)
+    setActiveTransactionId(newTx.id)
     setActivePage('Transactions')
   }
 
